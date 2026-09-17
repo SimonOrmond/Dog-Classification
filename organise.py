@@ -1,25 +1,55 @@
 import os
+import hashlib
 import numpy as np
 from PIL import Image
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
+DATA_DIR = os.path.join("images", "Images")  # Stanford Dogs, one folder per breed
+NUM_EPOCHS = 15
+
 np.random.seed(42)
-def get_features_dog(folder,size=(150, 150)):
-    images = []
-    labels = []
+torch.manual_seed(42)
+
+def check_duplicates(folder):
+    """Stops the program if any two image files are byte-for-byte identical."""
+    seen = {}
     for dog_name in os.listdir(folder):
         dog_class = os.path.join(folder, dog_name)
         for img_name in os.listdir(dog_class):
             img_path = os.path.join(dog_class, img_name)
-            img = Image.open(img_path)
-            img = img.resize(size)
+            with open(img_path, "rb") as f:
+                file_hash = hashlib.md5(f.read()).hexdigest()
+            if file_hash in seen:
+                raise ValueError(f"Duplicate images: {seen[file_hash]} and {img_path}")
+            seen[file_hash] = img_path
+
+def resize_and_crop(img, size):
+    """Shrinks the shorter side to `size`, then cuts a centre square, so dogs aren't stretched."""
+    width, height = img.size
+    scale = size / min(width, height)
+    img = img.resize((round(width * scale), round(height * scale)))
+    width, height = img.size
+    left = (width - size) // 2
+    top = (height - size) // 2
+    return img.crop((left, top, left + size, top + size))
+
+def get_features_dog(folder, size=150):
+    images = []
+    labels = []
+    for dog_name in sorted(os.listdir(folder)):
+        dog_class = os.path.join(folder, dog_name)
+        # Stanford folder names look like "n02088364-beagle", keep only the breed
+        breed = dog_name.split("-", 1)[1]
+        for img_name in os.listdir(dog_class):
+            img_path = os.path.join(dog_class, img_name)
+            img = Image.open(img_path).convert("RGB")
+            img = resize_and_crop(img, size)
             img = np.array(img)
             images.append(img)
-            labels.append(dog_name)
-            
-    
+            labels.append(breed)
+
     return np.array(images), np.array(labels)
 
 def prepare_data(x, y):
@@ -46,8 +76,15 @@ def split_data(x, y):
     return np.array(train_indices), np.array(val_indices), np.array(test_indices)
 
 
-X, Y = get_features_dog("dataset")
+check_duplicates(DATA_DIR)
+X, Y = get_features_dog(DATA_DIR)
 X, Y, class_names = prepare_data(X, Y)
+
+counts = np.bincount(Y)
+for name, count in zip(class_names, counts):
+    print(f"{name}: {count} images")
+if len(set(counts)) != 1:
+    raise ValueError("Breeds have different numbers of images")
 
 train_indices, val_indices, test_indices = split_data(X, Y)
 
@@ -132,44 +169,70 @@ loss_function = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 
-for images, labels in train_loader:
+def train_one_epoch(model, loader):
+    model.train()
 
-    optimizer.zero_grad()
+    total_loss = 0
+    correct = 0
+    total = 0
 
-    outputs = model(images)
+    for images, labels in loader:
 
-    loss = loss_function(outputs, labels)
-
-    loss.backward()
-
-    optimizer.step()
-
-    #print(loss.item())
-
-
-
-model.eval()
-
-total_loss = 0
-correct = 0
-total = 0
-
-with torch.no_grad():
-
-    for images, labels in val_loader:
+        optimizer.zero_grad()
 
         outputs = model(images)
 
         loss = loss_function(outputs, labels)
-        total_loss += loss.item()
 
+        loss.backward()
+
+        optimizer.step()
+
+        # loss is an average over the batch, so weight it by batch size
+        total_loss += loss.item() * labels.size(0)
         predictions = torch.argmax(outputs, dim=1)
-
         correct += (predictions == labels).sum().item()
         total += labels.size(0)
 
-average_loss = total_loss / len(val_loader)
-accuracy = correct / total
+    return total_loss / total, correct / total
 
-print("Validation loss:", average_loss)
-print("Validation accuracy:", accuracy * 100, "%")
+
+def evaluate(model, loader):
+    model.eval()
+
+    total_loss = 0
+    correct = 0
+    total = 0
+
+    with torch.no_grad():
+
+        for images, labels in loader:
+
+            outputs = model(images)
+
+            loss = loss_function(outputs, labels)
+            total_loss += loss.item() * labels.size(0)
+
+            predictions = torch.argmax(outputs, dim=1)
+
+            correct += (predictions == labels).sum().item()
+            total += labels.size(0)
+
+    return total_loss / total, correct / total
+
+
+# Kept so the loss curves can be plotted afterwards
+history = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": []}
+
+for epoch in range(NUM_EPOCHS):
+    train_loss, train_acc = train_one_epoch(model, train_loader)
+    val_loss, val_acc = evaluate(model, val_loader)
+
+    history["train_loss"].append(train_loss)
+    history["train_acc"].append(train_acc)
+    history["val_loss"].append(val_loss)
+    history["val_acc"].append(val_acc)
+
+    print(f"Epoch {epoch + 1}/{NUM_EPOCHS}  "
+          f"train loss {train_loss:.3f} acc {train_acc * 100:.1f}%  |  "
+          f"val loss {val_loss:.3f} acc {val_acc * 100:.1f}%")
