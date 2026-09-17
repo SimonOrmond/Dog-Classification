@@ -2,3 +2,6 @@
 dataset/
 images/
 annotations/
+
+# Saved model weights
+*.pt
