@@ -3,3 +3,5 @@ dataset/
 
 # Saved model weights
 *.pt
+
+*.venv
