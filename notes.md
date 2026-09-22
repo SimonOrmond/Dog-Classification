@@ -50,7 +50,7 @@ add more conv->pool blocks, each block expands the models range of view, allowin
 ├────────────────┼──────────────┼────────────────────────┼───────────────┼───────────┤
 │ + augmentation │ 24.1         │ 13                     │ small(10)     │ learns    │
 ├────────────────┼──────────────┼────────────────────────┼───────────────┼───────────┤
-│ + GAP + deeper │ 36.8%        │ 39                     │ small(5       │
+│ + GAP + deeper │ 36.8%        │ 39                     │ small(5)      │
 
 What changed in the code
 
@@ -123,3 +123,35 @@ big problems in this one^^  - validation performance was very jumpy, despite tra
 one possible cause is the fact that the learning rate is fixed at 0.01 meaning that even though the model may be approaching in the right direction in the final bit of training, one big change can set it off track. so we can vary this learning rate and reduce it gradually to stop this error.
 
 Another way to improve it is to save the best model each time, as in this case the best model occured at epoch 31/40 so taking epoch 40's version as the final product will be leaving out a better option.
+
+here is the result![alt text](image-2.png)
+
+it worked better and managed to achieved a loss of 1.481 at epoch 38/40 whilst maintaining a smooth descent and the model that was saved was epoch 38 not 40 as my changes hoped.
+
+now changing the normalisation at the start so each channel (R,G,B) has mean 0 and standard deviation 1, shouldnt have a huge effect because batch normalisation layer achieves this after first block but is good practice
+
+
+![alt text](image-3.png) loss 1.435 and 50.9% accuracy
+
+now adding dropout to force features in training to search for stronger more meaningful relationship, also increasing epoch count as this may mean the model requires longer to learn.
+
+dropout resulted in slightly worse best loss despite having 60 epochs rather than 40, so Ive chosen to try to crop all the images before training as the dataset comes with predetermined bounding boxes. this will mean all new images passed into the model will have to be cropped too but I think that will be achieveable with an object detection model
+
+![alt text](image-4.png) good results from this achieved loss of 1.302 with best accuracy 55.5%
+
+
+next steps:
+
+1. Stronger augmentation (best value for the time). Your current set is mild: ±12px shifts, flips, ±20% brightness. With a 20-point gap, it's worth more:
+- Scale jitter: crop a random 60–100% of the image and resize back to 150. This is RandomResizedCrop, the single most effective augmentation for this kind of task, and it also teaches the model that dogs come at different sizes, partly making up for the size clue that cropping removed.
+- Small rotations (±15°).
+- Mild colour jitter on saturation and contrast (leave hue alone, since coat colour matters).
+
+Same epoch time, and it targets the gap directly.
+
+2. Label smoothing: a one-line change. nn.CrossEntropyLoss(label_smoothing=0.1) asks the model to aim for 90% confidence rather than 100%. With genuinely confusable pairs like Beagle and Basset, demanding total confidence pushes the model to latch onto unreliable details. It usually gives a small, cheap gain on fine-grained problems.
+
+3. Weight decay: switch Adam to AdamW(..., weight_decay=1e-4). Another small, cheap regulariser.
+
+
+![alt text](image-5.png) resulted in much worse results.
