@@ -155,3 +155,11 @@ Same epoch time, and it targets the gap directly.
 
 
 ![alt text](image-5.png) resulted in much worse results.
+
+looking back at image-4 the training accuracy only reached ~72%, so the model wasnt even fitting the images it trains on. that means it was underfitting, not overfitting, which is why adding more regularisation (stronger augmentation, label smoothing, weight decay) in image-5 made things worse: it made fitting even harder. the old model was too small (4 conv layers, ~390k parameters), so each final feature only saw about a 46x46 patch of the 150px image, roughly a third of the dog. it was also still improving at epoch 40 when the learning rate had already dropped to ~0.
+
+new model - small ResNet: a stem conv then 4 residual blocks (9 conv layers, 1.23M parameters, 32 -> 32 -> 64 -> 128 -> 256 channels), trained for 120 epochs instead of 40. each epoch only takes ~19s vs ~16s before, because the extra layers run on smaller images (strided convs shrink the image instead of max pooling).
+
+ResNet theory: just stacking more conv layers tends to make training harder, because the gradient has to pass back through every layer and gets weaker and messier along the way. a residual block does conv -> bn -> relu -> conv -> bn and then adds the block's original input back onto the output (output = F(x) + x, the "shortcut"). this means each block only has to learn a change to its input rather than a whole new representation, and if a block isnt useful it can learn F(x) ~ 0 and just pass x through. the addition also gives gradients a direct path back to the early layers. when a block changes the channel count or image size, a 1x1 conv on the shortcut reshapes x so the two can be added together.
+
+goal for this run: training accuracy should climb well past 90%. if validation then lags far behind, the model is overfitting and it's time to bring back the stronger augmentation and label smoothing one at a time.
