@@ -5,3 +5,5 @@ dataset/
 *.pt
 
 *.venv
+
+__pycache__/
