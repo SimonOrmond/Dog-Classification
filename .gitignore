@@ -1,7 +1,5 @@
 # Datasets (kept locally, too large for git)
 dataset/
-images/
-annotations/
 
 # Saved model weights
 *.pt
